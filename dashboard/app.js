@@ -252,7 +252,7 @@
       '</section>' +
       '<div class="stats">' +
       '<div class="stat"><div class="k">Rows scored</div><div class="v">' + num(board.length) + '</div><div class="n">' + num(covered) + ' from the watchlist</div></div>' +
-      '<div class="stat"><div class="k">Top implied value</div><div class="v">' + usd(tableTop(rows)) + '</div><div class="n">rank 1: ' + esc(board[0] ? board[0].name : '—') + '</div></div>' +
+      '<div class="stat"><div class="k">Top value in view</div><div class="v">' + usd(tableTop(rows)) + '</div><div class="n">' + (topRow(rows) ? 'rank ' + topRow(rows).rank + ': ' + esc(topRow(rows).name) : 'no rows') + '</div></div>' +
       '<div class="stat"><div class="k">Median multiple</div><div class="v">' + mult(DATA.global_comps.multiple) + '</div><div class="n">p25 ' + mult(DATA.global_comps.p25) + ' · p75 ' + mult(DATA.global_comps.p75) + '</div></div>' +
       '<div class="stat"><div class="k">Widest comps</div><div class="v">' + (catMult ? esc(catMult.category) : '—') + '</div><div class="n">' + (catMult ? mult(catMult.multiple) + ' from ' + catMult.peers + ' peers' : 'n/a') + '</div></div>' +
       '</div>' +
@@ -310,9 +310,13 @@
   }
 
   function tableTop(rows) {
-    var m = 0;
-    rows.forEach(function (r) { if (r.implied_value_usd > m) m = r.implied_value_usd; });
-    return m || (board[0] ? board[0].implied_value_usd : 0);
+    var t = topRow(rows);
+    return t ? t.implied_value_usd : 0;
+  }
+  function topRow(rows) {
+    var best = null;
+    rows.forEach(function (r) { if (best === null || r.implied_value_usd > best.implied_value_usd) best = r; });
+    return best;
   }
 
   // ---------- detail ----------
@@ -324,6 +328,34 @@
     var cost = j < 0 ? tail : tail.slice(0, j);
     var time = j < 0 ? '' : tail.slice(j + 8).replace(/\.$/, '');
     return { text: head.replace(/\.$/, ''), cost: cost.replace(/\.$/, ''), time: time.replace(/\.$/, '') };
+  }
+
+  // The panel that shows where this row's multiple comes from: the category's own comparables, or the
+  // snapshot-wide median when the category is too thin to price.
+  function compsPanel(row) {
+    var cat = null;
+    DATA.comps.forEach(function (c) { if (c.category === row.category) cat = c; });
+    var live = DATA.live.filter(function (l) { return l.category === row.category; }).slice(0, 4);
+    return (
+      '<div class="panel pad block"><h2>Where ' + mult(row.category_multiple) + ' comes from</h2>' +
+      '<dl class="kv">' +
+      '<dt>Basis</dt><dd>' + esc(row.comps_label) + '</dd>' +
+      '<dt>Live comparables counted</dt><dd>' + row.comps_peers + '</dd>' +
+      '<dt>Median mcap / TVL</dt><dd>' + mult(cat ? cat.multiple : DATA.global_comps.multiple) + '</dd>' +
+      '<dt>Interquartile range</dt><dd>' + mult(cat ? cat.p25 : DATA.global_comps.p25) + ' – ' + mult(cat ? cat.p75 : DATA.global_comps.p75) + '</dd>' +
+      '<dt>Snapshot-wide median</dt><dd>' + mult(DATA.global_comps.multiple) + '</dd>' +
+      '</dl>' +
+      (live.length
+        ? '<table><thead><tr><th>Largest live peers</th><th class="num">Mcap/TVL</th><th class="num">Mcap</th></tr></thead><tbody>' +
+          live.map(function (l) {
+            var m = l.mcap_usd && l.tvl_usd ? l.mcap_usd / l.tvl_usd : null;
+            return '<tr><td>' + esc(l.name) + '</td><td class="num mono">' + mult(m) + '</td><td class="num mono">' + usd(l.mcap_usd) + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="sub">' + (cat
+            ? 'This category\'s comparables sit outside the 24 largest live tokens, so they set the multiple without being listed here.'
+            : 'No live token in this category carries a market cap, so the row is priced on the snapshot-wide median of ' + mult(DATA.global_comps.multiple) + '.') + '</p>') +
+      '</div>'
+    );
   }
 
   function peersOf(row, limit) {
@@ -397,14 +429,7 @@
         }).join('') + '</tbody></table>'
         : '<p class="sub">No other pre-token protocol in this category is on the board: this one is priced on the snapshot-wide multiple.</p>') +
       '</div>' +
-      '<div class="panel pad block"><h2>' + esc(row.category || 'This category') + ' already trades</h2>' +
-      (live.length ? '<table><thead><tr><th>Live protocol</th><th class="num">Mcap/TVL</th><th class="num">Mcap</th></tr></thead><tbody>' +
-        live.map(function (l) {
-          var m = l.mcap_usd && l.tvl_usd ? l.mcap_usd / l.tvl_usd : null;
-          return '<tr><td>' + esc(l.name) + '</td><td class="num mono">' + mult(m) + '</td><td class="num mono">' + usd(l.mcap_usd) + '</td></tr>';
-        }).join('') + '</tbody></table>'
-        : '<p class="sub">The snapshot lists no live token in this category, so the multiple comes from the whole market.</p>') +
-      '</div>' +
+      compsPanel(row) +
       '</div>' +
       '<div class="pager">' +
       (prev ? '<a href="#/p/' + encodeURIComponent(prev.slug) + '">← rank ' + prev.rank + ' · ' + esc(prev.name) + '</a>' : '<span></span>') +
